@@ -2,7 +2,7 @@
 
 A small browser game about content moderation. You review a queue of 20 made-up social media posts and decide whether to keep or remove each one. Two automated helpers are working alongside you, and at the end you see how all three of you did.
 
-**Play it:** [paste your GitHub Pages link here]
+**Play it:** [(https://omotara-oloye.github.io/recursecenter/content-moderator/)]
 
 I'm exploring AI trust and safety during my batch, and this was what I decided to work on during Impossible Day.
 
