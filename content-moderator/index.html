@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Content Moderator</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;700&display=swap" rel="stylesheet">
+
+  <meta name="description" content="A small game about content moderation: decide which posts to keep, then see how a keyword filter and a learned model compare.">
+  <meta property="og:title" content="Omotara's Content Moderator">
+  <meta property="og:description" content="Decide which posts to keep, then see how a keyword filter and a learned model compare.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛡️</text></svg>">
+
+  <style>
+    :root {
+      --sky: #9ABBD9;
+      --teal: #3C5E73;
+      --gold: #8C8303;
+      --olive: #594B02;
+      --brown: #402A01;
+      /* lighter tints of --sky, for text that sits on the dark colors */
+      --sky-light: #E3EDF6;
+      --sky-mid: #C5D8EA;
+
+      --ui-font: "Bricolage Grotesque", system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--sky);
+      color: var(--brown);
+      font-family: var(--ui-font);
+      font-size: 1rem;
+      line-height: 1.5;
+    }
+
+    .desk {
+      max-width: 38rem;
+      margin: 0 auto;
+      padding: 2.5rem 1.25rem 3rem;
+    }
+
+    h1 {
+      margin: 0 0 0.35rem;
+      font-size: clamp(1.75rem, 4vw, 2.25rem);
+      font-weight: 700;
+      line-height: 1.15;
+      letter-spacing: -0.01em;
+    }
+
+    .lede {
+      margin: 0 0 1.75rem;
+      font-size: 1.05rem;
+    }
+
+    /* The post being reviewed, styled like a social media post */
+    .case {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.85rem;
+      padding: 1.25rem;
+      background: var(--teal);
+      color: var(--sky-light);
+      border-radius: 16px;
+      /* light edge on top + solid underside = a raised slab */
+      box-shadow:
+        inset 0 1px 0 rgba(227, 237, 246, 0.22),
+        0 6px 0 var(--brown);
+    }
+
+    .avatar {
+      display: grid;
+      place-items: center;
+      width: 2.75rem;
+      height: 2.75rem;
+      background: var(--sky);
+      color: var(--teal);
+      border-radius: 50%;
+    }
+
+    .avatar svg {
+      width: 1.6rem;
+      height: 1.6rem;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 0.15rem 0.5rem;
+      font-size: 0.95rem;
+    }
+
+    .name {
+      font-size: 1rem;
+      font-weight: 700;
+    }
+
+    .handle,
+    .time {
+      color: var(--sky-mid);
+    }
+
+    .time::before {
+      content: "\00b7";
+      margin-right: 0.5rem;
+    }
+
+    .post {
+      margin: 0.35rem 0 0;
+      font-size: clamp(1.2rem, 2.8vw, 1.45rem);
+      font-weight: 400;
+      line-height: 1.4;
+      overflow-wrap: anywhere;
+    }
+
+    .reactions {
+      display: flex;
+      gap: 2rem;
+      margin-top: 1rem;
+      color: var(--sky-mid);
+    }
+
+    .reactions svg {
+      width: 1.25rem;
+      height: 1.25rem;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.75;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .filter {
+      display: inline-block;
+      margin: 0.9rem 0.5rem 0 0;
+      padding: 0.2rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.9rem;
+    }
+
+    .filter-flagged {
+      background: var(--sky-light);
+      color: var(--brown);
+      font-weight: 700;
+    }
+
+    .filter-clear {
+      border: 1px solid var(--sky-mid);
+      color: var(--sky-mid);
+    }
+
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-top: 1.75rem;
+    }
+
+    .btn {
+      padding: 0.9rem 1rem;
+      border: 0;
+      border-radius: 12px;
+      font: inherit;
+      font-size: 1.2rem;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.28),
+        0 5px 0 var(--brown);
+      transition: transform 0.08s, box-shadow 0.08s;
+    }
+
+    .btn-keep {
+      background: var(--gold);
+      color: var(--brown);
+    }
+
+    .btn-remove {
+      background: var(--olive);
+      color: var(--sky-light);
+    }
+
+    .btn:hover {
+      filter: brightness(1.12);
+    }
+
+    .btn:active {
+      transform: translateY(4px);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.1),
+        0 1px 0 var(--brown);
+    }
+
+    .btn:focus-visible {
+      outline: 3px solid var(--brown);
+      outline-offset: 4px;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      margin: 2.5rem 0 0;
+      padding-top: 1rem;
+      border-top: 3px solid var(--gold);
+    }
+
+    /* number shows above its label, but the label is read first by screen readers */
+    .stat {
+      display: flex;
+      flex-direction: column-reverse;
+      justify-content: flex-end; /* in a reversed column this pins content to the top */
+    }
+
+    .stat dt {
+      font-size: 0.95rem;
+    }
+
+    .stat dd {
+      margin: 0;
+      font-size: 2rem;
+      font-weight: 700;
+      line-height: 1.1;
+      font-variant-numeric: tabular-nums;
+    }
+    
+        [hidden] {
+      display: none;
+    }
+
+    .footnote {
+      margin: 1.5rem 0 0;
+      font-size: 0.9rem;
+    }
+
+    /* end-of-game results */
+    .results {
+      margin-top: 1.5rem;
+      padding: 1.5rem;
+      background: var(--sky-light);
+      color: var(--brown);
+      border-radius: 16px;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.6),
+        0 6px 0 var(--brown);
+    }
+
+    .results h2 {
+      margin: 0 0 0.5rem;
+      font-size: 1.5rem;
+      line-height: 1.2;
+    }
+
+    .results h3 {
+      margin: 1.5rem 0 0.75rem;
+      font-size: 1.1rem;
+    }
+
+    .results p {
+      margin: 0 0 0.75rem;
+    }
+
+    .results .btn {
+      width: 100%;
+      margin-top: 1.25rem;
+    }
+
+    .mistakes {
+      display: grid;
+      gap: 1.25rem;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .mistake {
+      padding: 0.85rem 1rem;
+      background: rgba(60, 94, 115, 0.12);
+      border-left: 4px solid var(--teal);
+      border-radius: 8px;
+    }
+
+    .results .scoreline {
+      margin: 0 0 0.25rem;
+      font-size: 0.95rem;
+    }
+
+    .results #score-model {
+      margin-bottom: 1rem;
+    }
+    .more {
+      margin-top: 1.5rem;
+      padding-top: 1rem;
+      border-top: 1px solid rgba(64, 42, 1, 0.2);
+    }
+
+    .more summary {
+      font-size: 1.1rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .more summary:focus-visible {
+      outline: 3px solid var(--brown);
+      outline-offset: 4px;
+    }
+
+    .more[open] summary {
+      margin-bottom: 0.75rem;
+    }
+
+    .learned-note {
+      font-size: 0.95rem;
+    }
+
+    .learned-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    .learned-grid h4 {
+      margin: 0 0 0.5rem;
+      font-size: 0.95rem;
+    }
+
+    .learned-list {
+      display: grid;
+      gap: 0.4rem;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .learned-list li {
+      padding: 0.35rem 0.6rem;
+      background: rgba(60, 94, 115, 0.12);
+      border-radius: 6px;
+      font-size: 0.95rem;
+    }
+
+    .learned-list-remove li {
+      border-left: 4px solid var(--olive);
+    }
+
+    .learned-list-keep li {
+      border-left: 4px solid var(--gold);
+    }
+
+    @media (max-width: 30rem) {
+      .learned-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .mistake-filter {
+      border-left-color: var(--gold);
+    }
+
+    .mistake p {
+      margin: 0;
+    }
+
+    .mistake-choice {
+      font-size: 0.95rem;
+      font-weight: 700;
+    }
+
+    .mistake-post {
+      margin: 0.35rem 0 0.6rem;
+    }
+
+    .mistake-why {
+      font-size: 0.95rem;
+    }
+    
+        /* popup shown after a wrong answer */
+    .explain {
+      width: calc(100% - 2.5rem);
+      max-width: 28rem;
+      padding: 1.5rem;
+      border: 0;
+      border-radius: 16px;
+      background: var(--sky-light);
+      color: var(--brown);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.6),
+        0 6px 0 var(--brown);
+    }
+
+    .explain::backdrop {
+      background: rgba(64, 42, 1, 0.55);
+    }
+
+    .explain h2 {
+      margin: 0 0 0.5rem;
+      font-size: 1.35rem;
+      line-height: 1.2;
+    }
+
+    .explain p {
+      margin: 0 0 1.25rem;
+    }
+
+    .explain .btn {
+      width: 100%;
+    }
+
+    .btn-next,
+    .btn-restart {
+        background: var(--teal);
+        color: var(--sky-light);
+    }
+
+    @media (max-width: 22rem) {
+      .actions {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .btn {
+        transition: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="desk">
+    <h1>Omotara's Content Moderator</h1>
+    <div id="game">
+    <p class="lede">  Read the post, then decide: keep it or remove it. A keyword filter flags posts that contain certain words, and a learned model guesses from your past answers. Both can be wrong.</p>
+
+    <article class="case">
+      <div class="avatar" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="9" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8z"/></svg>
+      </div>
+      <div class="content">
+        <div class="meta">
+          <span class="name">Anonymous</span>
+          <span class="handle">@user</span>
+          <span class="time">now</span>
+        </div>
+        <p id="post-text" class="post" aria-live="polite"></p>
+        <div class="reactions" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.6A8 8 0 1 1 21 12z"/></svg>
+          <svg viewBox="0 0 24 24"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/></svg>
+          <svg viewBox="0 0 24 24"><path d="M12 20.5s-8-4.9-9.5-10C1.6 7.2 3.6 4.5 6.5 4.5c2 0 3.7 1.1 5.5 3.2 1.8-2.1 3.5-3.2 5.5-3.2 2.9 0 4.9 2.7 4 6-1.5 5.1-9.5 10-9.5 10z"/></svg>
+        </div>
+        <p id="filter" class="filter" aria-live="polite"></p>
+        <p id="model-verdict" class="filter" aria-live="polite"></p>
+      </div>
+    </article>
+
+    <div class="actions">
+      <button class="btn btn-keep" onclick="handleChoice('keep')">Keep</button>
+      <button class="btn btn-remove" onclick="handleChoice('remove')">Remove</button>
+    </div>
+    </div>
+    
+    <section id="results" class="results" hidden>
+      <h2 id="results-title" tabindex="-1">Queue cleared</h2>
+      <p id="results-score"></p>
+      <p id="score-filter" class="scoreline"></p>
+      <p id="score-model" class="scoreline"></p>
+      <p>"Wrongly removed" means you took down a post that was fine. "Missed" means you left up a post that broke the rules. Every moderation system trades these two mistakes off against each other.</p>
+      <div id="mistakes-section">
+        <h3>Posts you got wrong:</h3>
+        <ul id="mistakes" class="mistakes"></ul>
+      </div>
+      <details id="filter-report" class="more">
+        <summary id="filter-summary"></summary>
+        <ul id="filter-misses" class="mistakes"></ul>
+      </details>
+      <details id="learned" class="more">
+        <summary>What the model learned</summary>
+        <p class="learned-note">For every word, the model counts how many posts you removed and how many you kept that contained it. To guess about a new post, it adds up the evidence from each word. The numbers below are those counts.</p>
+        <p class="learned-note">With so few posts to learn from, a lot of this is coincidence. A word seen in only a couple of posts can't tell the model much.</p>
+        <div class="learned-grid">
+          <div>
+            <h4>Pushes toward removal</h4>
+            <ul id="learned-remove" class="learned-list learned-list-remove"></ul>
+          </div>
+          <div>
+            <h4>Pushes toward keeping</h4>
+            <ul id="learned-keep" class="learned-list learned-list-keep"></ul>
+          </div>
+        </div>
+      </details>
+      <button class="btn btn-restart" onclick="restart()">Play again</button>
+    </section>
+
+    <dl class="stats">
+      <div class="stat">
+        <dt>Correct</dt>
+        <dd id="stat-correct">0</dd>
+      </div>
+      <div class="stat">
+        <dt>Wrongly removed</dt>
+        <dd id="stat-false-positives">0</dd>
+      </div>
+      <div class="stat">
+        <dt>Missed</dt>
+        <dd id="stat-false-negatives">0</dd>
+      </div>
+    </dl>
+    <p class="footnote">All posts are fictional examples written for this game.</p>
+  </main>
+
+    <dialog id="explain" class="explain" aria-labelledby="explain-title">
+    <h2 id="explain-title"></h2>
+    <p id="explain-text"></p>
+    <form method="dialog">
+      <button class="btn btn-next">Next post</button>
+    </form>
+  </dialog>
+
+  <script>
+    const roundOne = [
+      { text: "FREE iPhone!!! click here", isViolation: true, category: "spam", explanation: "Classic spam: an unsolicited giveaway with a 'click here' prompt. Real prizes don't arrive this way." },
+      { text: "I hope Jannik Sinner's knee gets better soon. Otherwise, someone else will be the world #1.", isViolation: false ,category: "none", explanation: "Wishing an athlete a quick recovery isn't a violation. It names a real injury but has no insult and no call to harm anyone."},
+      { text: "Group chat has been arguing about the thermostat for two hours. I swear if Hopper touches it one more time I will personally end her 💀", isViolation: false, category: "sarcasm", explanation: "Exaggerated joking about a petty argument isn't a real threat. A keyword filter would flag it anyway." },
+      { text: "Please, @Dua_lipa go on a date with me!!!!! Or else!", isViolation: true ,category: "harassment", explanation: "A demand aimed at a specific person with an 'or else' attached is an implied threat, even when it's meant as a joke. It pressures her to do something she hasn't agreed to."},
+      { text: "Turn $50 into $5,000 in 24 hours!!! DM me the word INVEST and I'll send you the secret link. Limited spots, act NOW", isViolation: true, category: "spam", explanation: "A get-rich-quick scam: an unrealistic promise, fake urgency, and a push to move the conversation to private messages." },
+      { text: "The new subway ticket machines are a disaster, and whoever designed them should be banned from touching a computer ever again.", isViolation: false, category: "edgy", explanation: "Harsh criticism of a product or a decision is allowed. It targets the design, not a named person, and there is no call to harm anyone." },
+      { text: "Made it to the top of the hill just as the sun came up. Worth every one of those 5am alarms.", isViolation: false, category: "none", explanation: "Sharing a morning hike isn't a violation. There's no target, no request, and nothing to enforce." },
+      { text: "Everyone go reply to @tess_makes_pots and tell her to quit pottery. Let's flood her page until she deletes it.", isViolation: true, category: "harassment", explanation: "A coordinated pile-on aimed at one person. Organizing others to overwhelm someone is harassment, even if every single reply is mild." },
+      { text: "BREAKING: New York City council members vote to replace all parks with parking lots, citing 'a serious shortage of places to be annoyed.' Ground breaking at Central Park begins next week.", isViolation: false, category: "satire", explanation: "Satire: the absurd reason is the joke. It reads like real news, so a rushed reader or a simple filter could mistake it for misinformation." },
+      { text: "Wow @maddie_s, so inspiring that you posted that photo. Honestly, we should all comment 'so brave' on it. 😊 You know what we mean.", isViolation: true, category: "harassment", explanation: "Praise used as a code to mock one person, plus a call for others to join in. No insult appears anywhere, but the intent is still harassment." },
+      { text: "Free coffee at the community library every Saturday morning. Bring a mug and say hi!", isViolation: false, category: "none", explanation: "An ordinary community announcement. 'Free' shows up in plenty of normal posts, which is why a keyword filter on its own flags too much." },
+      { text: "Heavy rain tonight on the river road. Drive slowly and check on your neighbors if you can.", isViolation: false, category: "none", explanation: "An ordinary weather and safety note. Nothing here needs moderating." },
+      { text: "Everyone report @dev_notes right now. Flood the account with reports until it's gone.", isViolation: true, category: "harassment", explanation: "Another coordinated pile-on, this time through mass reporting. The keyword 'flood' happens to catch this one, but a rephrase like 'mass-report it' would slip right past a filter." },
+      { text: "Hot take: the sequel is better than the original, and anyone who disagrees has terrible taste.", isViolation: false, category: "edgy", explanation: "A strong opinion about a movie isn't a violation. The jab is at a point of view, not at a specific person, and nobody is being targeted." },
+    ];
+
+    const roundTwo = [
+      { text: "fr33 1Phone!!! cl1ck h3re 👇", isViolation: true, category: "spam", explanation: "The same scam as the 'FREE iPhone' post, with letters swapped for numbers. A filter that looks for 'FREE' and 'click' would miss it." },
+      { text: "Tu.rn $50 in.to $5,000 in 24 h0urs. Message me the word I.N.V.E.S.T and I'll s3nd the l.ink", isViolation: true, category: "spam", explanation: "The investment scam again, with dots and numbers inside the words so a filter matching whole words can't find them. Read past the tricks and it's the same pitch." },
+      { text: "My cousin turned $50 into $5,000 last week. I can't explain it here, so check my profile.", isViolation: true, category: "spam", explanation: "The same scam with the trigger words removed: no 'DM me', no 'INVEST', no link. A filter has nothing to match, but the pitch is identical: a huge return and a push to move somewhere private." },
+      { text: "My cat's name is Fr33 because my niece named her that. Click the link in my bio for photos!", isViolation: false, category: "none", explanation: "A number in a word and a 'click the link' line look like the disguises scammers use, but this is someone sharing cat photos. Judging posts by tricks alone punishes ordinary people." },
+      { text: "URGENT: your account is locked. Verify your login at secure-acct-help dot net within 1 hour.", isViolation: true, category: "spam", explanation: "A phishing attempt: fake urgency and a lookalike address spelled out in words so a link filter can't see it." },
+      { text: "So proud of @kofi_b for finally posting. Let's all reply 'bless his heart' under it, you know the tone. 🙂", isViolation: true, category: "harassment", explanation: "Another coded pile-on: friendly words used as a signal to mock one person. No insult appears anywhere, but the intent is the same as before." },
+    ];
+
+    const posts = [...roundOne,... roundTwo];
+        function shuffle(list){
+        const copy = [...list];
+        for(let i=copy.length - 1;i >0; i--){
+            const j = Math.floor(Math.random() * (i+ 1));
+            [copy[i], copy[j]] = [copy[j],copy[i]];
+        }
+        return copy;
+    }
+
+    function buildQueue(){
+        return [...shuffle(roundOne), ...shuffle(roundTwo)];
+    }
+
+    let queue = buildQueue();
+
+    const FILTER_WORDS = ["free", "click", "invest", "dm me", "or else", "end her", "flood", "act now"];
+
+    const state = {
+      currentIndex: 0,
+      falsePositives: 0,   // removed a post that was fine
+      falseNegatives: 0,   // kept a post that was bad
+      correct: 0,          // correctly identified a post
+      mistakes: [],   // posts the player got wrong
+      modelRight: 0,       // times the learned model guessed right
+      modelTotal: 0,       // times it made a guess at all
+    };
+
+    const model ={
+        removed: {},        //word: number of removed posts that contained it
+        kept: {},           //word: number of kept posts that contained it
+        removedPosts: 0,    //number of posts the moderator has removed so far
+        keptPosts: 0,       //number of posts the moderator has kept so far
+    };
+
+    const MIN_TRAINING_POSTS = 5;
+
+    function resetModel() {
+        model.removed = {};
+        model.kept = {};
+        model.removedPosts = 0;
+        model.keptPosts = 0;
+    }
+
+    function isFlagged(text) {
+        const lower = text.toLowerCase();
+        return FILTER_WORDS.some(word => lower.includes(word));
+    }
+
+    function tokenize(text){
+        const lower = text.toLowerCase();
+        const words = lower.split(/[^a-z0-9]+/).filter(word => word !== "");
+        return words
+    }
+
+    function train(text, choice){
+        const counts = choice === "remove" ? model.removed : model.kept
+
+        if(choice === "remove"){
+            model.removedPosts++;
+        } else{
+            model.keptPosts++;
+        }
+        const setOfWords = new Set(tokenize(text));
+        for (const word of setOfWords){
+            counts[word] = (counts[word] || 0) + 1;
+        }
+    }
+
+    function predict(text){
+        let logOdds = Math.log((model.removedPosts + 1) / (model.keptPosts +1));
+
+        const setOfWords = new Set(tokenize(text));
+        for (const word of setOfWords){
+            if (!model.removed[word] && !model.kept[word] ){
+                continue;
+            }else{
+                const pRemoved = ((model.removed[word]|| 0) + 1) / (model.removedPosts + 2);
+                const pKept = ((model.kept[word]|| 0) + 1) / (model.keptPosts + 2);
+                logOdds += Math.log(pRemoved/pKept);
+            }
+        }
+        return 1 / (1 + Math.exp(-logOdds));
+    }
+
+    function showPost() {
+      const post = queue[state.currentIndex];
+      document.getElementById("post-text").textContent = post.text;
+
+      const flagged = isFlagged(post.text);
+      const banner = document.getElementById("filter");
+      banner.textContent = flagged ? "Keyword filter: flagged" : "Keyword filter: no flags";
+      banner.className = flagged ? "filter filter-flagged" : "filter filter-clear";
+
+      const modelBanner = document.getElementById("model-verdict");
+      const trained = model.removedPosts + model.keptPosts;
+
+      if(trained < MIN_TRAINING_POSTS){
+        modelBanner.textContent = "Learned model: still learning";
+        modelBanner.className = "filter filter-clear";
+      } else{
+        const p = predict(post.text);
+        modelBanner.textContent = `Learned model: ${Math.round(p * 100)}% likely to be removed`;
+        modelBanner.className =  p > 0.5 ? "filter filter-flagged" : "filter filter-clear";
+      }
+    }
+
+    function handleChoice(choice) {
+      const post = queue[state.currentIndex];
+      if(model.removedPosts+ model.keptPosts >= MIN_TRAINING_POSTS){
+        state.modelTotal++;
+        if ((predict(post.text) > 0.5) === post.isViolation) {
+            state.modelRight++;
+        }
+      }
+      train(post.text, choice);
+
+      let message = null; //stays null if the answer is correct
+      // Condition for a false negative
+      if (choice === 'keep' && post.isViolation) {
+        state.falseNegatives++;
+        state.mistakes.push({ post, choice });
+        message = "You kept a post that breaks the rules."
+      // Condition for a false positive
+      } else if (choice === 'remove' && !post.isViolation) {
+        state.falsePositives++;
+        state.mistakes.push({ post, choice });
+        message = "You got rid of a post that doesn't violate the rules."
+      } else {
+        state.correct++;
+      }
+      if (message){
+        showExplanation(message, post.explanation)
+      }else{
+        nextPost();
+      }
+
+
+      updateStats();
+    }
+
+    function showExplanation(message, explanation){
+        document.getElementById("explain-title").textContent = message;
+        document.getElementById("explain-text").textContent = explanation;
+        document.getElementById("explain").showModal();
+
+    }
+
+    function updateStats() {
+      document.getElementById("stat-correct").textContent = state.correct
+      document.getElementById("stat-false-positives").textContent = state.falsePositives
+      document.getElementById("stat-false-negatives").textContent = state.falseNegatives         
+    }
+
+    function nextPost(){
+        state.currentIndex++;
+        if (state.currentIndex >= posts.length) {
+        endGame();
+      } else {
+        showPost();
+      }
+    }
+
+    function fillList(listId, rows){
+        const list = document.getElementById(listId);
+        list.replaceChildren();
+        for(const row of rows){
+            const li = document.createElement("li");
+            li.textContent = `${row.word} (removed in ${row.removedCount}, kept in ${row.keptCount})`;
+            list.append(li);
+        }
+    }
+
+    function endGame() {
+      document.getElementById("game").hidden = true;
+      document.getElementById("results").hidden = false;
+
+      document.getElementById("results-score").textContent = `You got ${state.correct} of ${posts.length} right.`;
+
+      // 1. the player's own mistakes
+      const list = document.getElementById("mistakes");
+      list.replaceChildren();   // empties the list, so "Play again" doesn't stack old items
+      document.getElementById("mistakes-section").hidden = state.mistakes.length === 0;
+
+      for (const m of state.mistakes) {
+        const li = document.createElement("li");
+        li.className = "mistake";
+
+        const choiceEl = document.createElement("p");
+        choiceEl.className = "mistake-choice";
+        choiceEl.textContent = m.choice === "keep" ? "You kept this post:" : "You removed this post:";
+
+        const postEl = document.createElement("p");
+        postEl.className = "mistake-post";
+        postEl.textContent = m.post.text;
+
+        const whyEl = document.createElement("p");
+        whyEl.className = "mistake-why";
+        whyEl.textContent = m.post.explanation;
+
+        li.append(choiceEl, postEl, whyEl);
+        list.append(li);
+      }
+
+      // 2. the filter's mistakes
+      const filterList = document.getElementById("filter-misses");
+      filterList.replaceChildren();
+      let filterWrong = 0;
+
+      for (const post of posts) {
+        const flagged = isFlagged(post.text);
+        if (flagged !== post.isViolation) {
+          filterWrong++;
+
+          const li = document.createElement("li");
+          li.className = "mistake mistake-filter";
+
+          const labelEl = document.createElement("p");
+          labelEl.className = "mistake-choice";
+          labelEl.textContent = post.isViolation ? "The keyword filter missed this post:" : "The keyword filter flagged this fine post:";
+
+          const textEl = document.createElement("p");
+          textEl.className = "mistake-post";
+          textEl.textContent = post.text;
+
+          const whyEl = document.createElement("p");
+          whyEl.className = "mistake-why";
+          whyEl.textContent = post.explanation;
+
+          li.append(labelEl, textEl, whyEl);
+          filterList.append(li);
+        }
+      }
+
+      const rows=[];
+      const vocabulary = new Set([...Object.keys(model.removed), ...Object.keys(model.kept)]);
+      for(const word of vocabulary){
+        const removedCount = model.removed[word] || 0;
+        const keptCount = model.kept[word] || 0;
+            if(keptCount + removedCount < 2){
+                continue;
+            }else{
+                const pRemoved = (removedCount + 1) / (model.removedPosts + 2);
+                const pKept = (keptCount + 1) / (model.keptPosts + 2);
+                const score = Math.log(pRemoved / pKept);
+                rows.push({word, removedCount, keptCount, score});
+            }
+      }
+      rows.sort((a,b) => b.score - a.score);
+      fillList("learned-remove", rows.slice(0,5));
+      fillList("learned-keep",rows.slice(-5).reverse());
+
+
+      const filterRight = posts.length - filterWrong;
+      document.getElementById("score-filter").textContent = `Keyword filter: right on ${filterRight} of ${posts.length}.`;
+      document.getElementById("score-model").textContent = `Learned model: right on ${state.modelRight} of ${state.modelTotal} (it sat out the first ${MIN_TRAINING_POSTS} while it learned).`
+
+      document.getElementById("filter-summary").textContent = `The keyword filter was wrong on ${filterWrong} of ${posts.length} posts:`;
+      document.getElementById("results-title").focus();
+    }
+
+    function restart() {
+      state.currentIndex =  0;
+      state.falsePositives = 0;   
+      state.falseNegatives =  0;   
+      state.correct = 0;          
+      state.mistakes = [];
+      state.modelRight = 0;
+      state.modelTotal = 0;
+      updateStats();   
+      document.getElementById("results").hidden = true;
+      document.getElementById("game").hidden = false;
+      resetModel();
+      queue = buildQueue();
+      showPost();
+}
+
+    showPost();
+    updateStats();
+    document.getElementById("explain").addEventListener("close", nextPost);
+  </script>
+</body>
+</html>
